@@ -1,5 +1,6 @@
 # stable_diffusion
 Demo
+
 [![Demo](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1ry37udowHtRGr8sAQTGBS3gnCDTgFeue?usp=sharing)
 
 ## Introduction
