@@ -1,9 +1,10 @@
 # stable_diffusion
+Demo
+[![Demo](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1ry37udowHtRGr8sAQTGBS3gnCDTgFeue?usp=sharing)
 
 ## Introduction
 Developed a comprehensive implementation of the CLIP model using PyTorch, focusing on efficient self-attention mechanisms and feedforward layers. The project includes a detailed setup guide, dependency management, and data handling instructions. Enhanced the repository with clear documentation and interactive Colab notebooks for easy experimentation and reproducibility.
 
-[![Demo](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1ry37udowHtRGr8sAQTGBS3gnCDTgFeue?usp=sharing)
 ## Output
 ```python
 
