@@ -4,8 +4,9 @@ import numpy as np
 
 class DDPMSampler:
     """
+    # Params "beta_start" and "beta_end" taken from: https://github.com/CompVis/stable-diffusion/blob/21f890f9da3cfbeaba8e2ac3c425ee9e998d5229/configs/stable-diffusion/v1-inference.yaml#L5C8-L5C8
+    # For the naming conventions, refer to the DDPM paper (https://arxiv.org/pdf/2006.11239.pdf)
     DDPMSampler class implements the Diffusion Denoising Probabilistic Model (DDPM) sampling process.
-
     This class handles the inference process for generating images or other data modalities using DDPM.
     DDPM gradually adds noise to data during the forward process and then learns to reverse this process during inference.
 
@@ -70,6 +71,7 @@ class DDPMSampler:
         Args:
             num_inference_steps (int, optional): Number of steps to perform during inference. Defaults to 50.
         """
+
         self.num_inference_steps = num_inference_steps
         step_ratio = self.num_train_timesteps // self.num_inference_steps
         timesteps = (np.arange(0, num_inference_steps) * step_ratio).round()[::-1].copy().astype(np.int64)
@@ -85,6 +87,7 @@ class DDPMSampler:
         Returns:
             int: The previous timestep index.
         """
+
         prev_t = timestep - self.num_train_timesteps // self.num_inference_steps
         return prev_t
 
@@ -98,12 +101,16 @@ class DDPMSampler:
         Returns:
             torch.Tensor: The computed variance.
         """
+
         prev_t = self._get_previous_timestep(timestep)
 
         alpha_prod_t = self.alphas_cumprod[timestep]
         alpha_prod_t_prev = self.alphas_cumprod[prev_t] if prev_t >= 0 else self.one
         current_beta_t = 1 - alpha_prod_t / alpha_prod_t_prev
 
+        # For t > 0, compute predicted variance βt (see formula (6) and (7) from https://arxiv.org/pdf/2006.11239.pdf)
+        # and sample from it to get previous sample
+        # x_{t-1} ~ N(pred_prev_sample, variance) == add variance to pred_sample
         # Compute variance based on the DDPM formula
         variance = (1 - alpha_prod_t_prev) / (1 - alpha_prod_t) * current_beta_t
 
@@ -114,15 +121,19 @@ class DDPMSampler:
 
     def set_strength(self, strength=1):
         """
-        Set the noise strength during inference.
+        Set how much noise to add to the input image.
+            More noise (strength ~ 1) means that the output will be further from the input image.
+            Less noise (strength ~ 0) means that the output will be closer to the input image.
 
         Args:
             strength (float, optional): Noise strength, where 1 means high noise (output far from input)
                                         and 0 means low noise (output close to input). Defaults to 1.
         """
+        # start_step is the number of noise levels to skip
         start_step = self.num_inference_steps - int(self.num_inference_steps * strength)
         self.timesteps = self.timesteps[start_step:]
         self.start_step = start_step
+
 
     def step(self, timestep: int, latents: torch.Tensor, model_output: torch.Tensor) -> torch.Tensor:
         """
@@ -139,7 +150,7 @@ class DDPMSampler:
         t = timestep
         prev_t = self._get_previous_timestep(t)
 
-        # Compute alphas and betas
+        # 1. Compute alphas and betas
         alpha_prod_t = self.alphas_cumprod[t]
         alpha_prod_t_prev = self.alphas_cumprod[prev_t] if prev_t >= 0 else self.one
         beta_prod_t = 1 - alpha_prod_t
@@ -147,24 +158,30 @@ class DDPMSampler:
         current_alpha_t = alpha_prod_t / alpha_prod_t_prev
         current_beta_t = 1 - current_alpha_t
 
-        # Compute the predicted original sample (x_0)
+        # 2. Compute the predicted original sample (x_0)
+        # "predicted x_0" of formula (15) from https://arxiv.org/pdf/2006.11239.pdf
         pred_original_sample = (latents - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
 
-        # Compute coefficients for x_0 and x_t
+        # 3. Compute coefficients for pred_original_sample x_0 and current sample x_t
+        # See formula (7) from https://arxiv.org/pdf/2006.11239.pdf
         pred_original_sample_coeff = (alpha_prod_t_prev ** (0.5) * current_beta_t) / beta_prod_t
         current_sample_coeff = current_alpha_t ** (0.5) * beta_prod_t_prev / beta_prod_t
 
-        # Compute the predicted previous sample (μ_t)
+        # 4. Compute predicted previous sample µ_t
+        # See formula (7) from https://arxiv.org/pdf/2006.11239.pdf
         pred_prev_sample = pred_original_sample_coeff * pred_original_sample + current_sample_coeff * latents
 
-        # Add noise for t > 0
+        # 5. Add noise for t > 0
         variance = 0
         if t > 0:
             device = model_output.device
             noise = torch.randn(model_output.shape, generator=self.generator, device=device, dtype=model_output.dtype)
+            # Compute the variance as per formula (7) from https://arxiv.org/pdf/2006.11239.pdf
             variance = (self._get_variance(t) ** 0.5) * noise
 
         # Return the predicted previous sample with added noise
+        # sample from N(mu, sigma) = X can be obtained by X = mu + sigma * N(0, 1)
+        # the variable "variance" is already multiplied by the noise N(0, 1)
         pred_prev_sample = pred_prev_sample + variance
 
         return pred_prev_sample
@@ -197,4 +214,10 @@ class DDPMSampler:
         while len(sqrt_one_minus_alpha_prod.shape) < len(original_samples.shape):
             sqrt_one_minus_alpha_prod = sqrt_one_minus_alpha_prod.unsqueeze(-1)
 
-        # Sample from q(x_t | x_0) as in equation
+        # Sample from q(x_t | x_0) as in equation (4) of https://arxiv.org/pdf/2006.11239.pdf
+        # Because N(mu, sigma) = X can be obtained by X = mu + sigma * N(0, 1)
+        # here mu = sqrt_alpha_prod * original_samples and sigma = sqrt_one_minus_alpha_prod
+        noise = torch.randn(original_samples.shape, generator=self.generator, device=original_samples.device,
+                            dtype=original_samples.dtype)
+        noisy_samples = sqrt_alpha_prod * original_samples + sqrt_one_minus_alpha_prod * noise
+        return noisy_samples
