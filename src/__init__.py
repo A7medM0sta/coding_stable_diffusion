@@ -1,4 +1,3 @@
-from .tokenizer import Tokenizer
 from .clip import CLIP
 from .encoder import Encoder
 from .decoder import Decoder
